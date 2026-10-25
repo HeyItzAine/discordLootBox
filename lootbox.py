@@ -2,6 +2,8 @@ import requests
 import json
 import base64
 import time
+import os
+import getpass
 
 def open_loot_box(token):
     X_Super = {"client_build_number": 280346}
@@ -13,24 +15,47 @@ def open_loot_box(token):
 
     opened_items = {}
     total_opened = 0
+    max_requests = 250
+    request_count = 0
     while True:
-        response = requests.post('https://discord.com/api/v9/users/@me/lootboxes/open', headers=headers)
-        if 'user_lootbox_data' in response.json():
-            if 'opened_items' in response.json()['user_lootbox_data']:
-                opened_items = response.json()['user_lootbox_data']['opened_items']
+        request_count += 1
+        try:
+            response = requests.post(
+                'https://discord.com/api/v9/users/@me/lootboxes/open',
+                headers=headers,
+                timeout=10,
+            )
+            payload = response.json()
+        except (requests.RequestException, ValueError) as error:
+            print(f"[AutoLootbox] >> Request failed: {error}")
+            break
+
+        if response.status_code in (401, 403):
+            print("[AutoLootbox] >> Invalid or unauthorized token.")
+            break
+
+        if 'user_lootbox_data' in payload:
+            if 'opened_items' in payload['user_lootbox_data']:
+                opened_items = payload['user_lootbox_data']['opened_items']
                 total_opened = sum(opened_items.values())
 
-        if 'opened_item' in response.json():
+        if 'opened_item' in payload:
             total_opened += 1
-            print("[AutoLootbox] >> Item Opened!", response.json()['opened_item'], "Total Opened:", total_opened, "Inventory Items:", len(opened_items))
+            print("[AutoLootbox] >> Item Opened!", payload['opened_item'], "Total Opened:", total_opened, "Inventory Items:", len(opened_items))
 
-        if "retry_after" in response.json():
-            time.sleep(response.json()["retry_after"])
+        if "retry_after" in payload:
+            time.sleep(min(float(payload["retry_after"]), 60))
 
         # Break the loop if all 9 different lootboxes are opened
         if len(opened_items) >= 9:
             print("Success! All 9 different lootboxes opened.")
             break
 
-token = input('Paste token here: ')
-open_loot_box(token)
+        if request_count >= max_requests:
+            print("[AutoLootbox] >> Stopped after max request limit for safety.")
+            break
+
+token = os.getenv("DISCORD_TOKEN")
+if not token:
+    token = getpass.getpass("Paste token here (input hidden): ")
+open_loot_box(token.strip())
